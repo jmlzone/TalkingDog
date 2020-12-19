@@ -14,5 +14,19 @@ A keyboard of arcade style buttons to teach a dog to talk with a raspberry PI an
 * doc/ -- Some drawings/docs in the doc directory.  Likly this will be hand built
 * python/ -- the code
 * sounds/ -- sound files for the buttons.
-  
 
+# Some of the python files
+* TalkingDog.py -- the main code
+* gpTImer.py    -- a wrapper class for a general puropse timer making threading.Timer more friendly
+* buttonio.py   -- a class for the io on the mcp23107 i2c GPIO expander. Includes software timer button debounce.
+
+# requirments
+enable I2C on the rasberry pi
+sudo apt-get install -y python3-smbus python3-dev i2c-tools
+sudo pip3 install pyalsaaudio
+
+# check to see the I2c peripherals work:
+sudo i2cdetect -y 1
+
+# to record and edit the audio files
+sudo apt-get install -y audacity
