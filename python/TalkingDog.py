@@ -4,7 +4,7 @@ import alsaaudio
 import subprocess
 import time
 import os
-sounddict = {1:'one.wav',2:'two.wav',3:'three.wav',4:'four.wav'}
+sounddict = {0:'zero.wav', 1:'one.wav',2:'two.wav',3:'three.wav',4:'four.wav', 5:'busybone.wav'}
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..' ))
 print("running from %s" % root)
 sounddir = os.path.join(root,"sounds")
