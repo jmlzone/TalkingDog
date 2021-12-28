@@ -24,8 +24,8 @@ A keyboard of arcade style buttons to teach a dog to talk with a raspberry PI an
 
 # requirements
 enable I2C on the rasberry pi, install alsaaudio and pydub
-sudo apt-get install -y python3-smbus python3-dev i2c-tools python3-alsaaudio
-sudo pip3 install pydub
+        sudo apt-get install -y python3-smbus python3-dev i2c-tools python3-alsaaudio
+        sudo pip3 install pydub
 
 # check to see the I2c peripherals work:
         sudo i2cdetect -y 1
