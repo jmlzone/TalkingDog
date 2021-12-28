@@ -3,6 +3,7 @@ import RPi.GPIO as GPIO
 import smbus
 import gpTimer
 import threading
+import time
 """ User IO pin naames
 """
 GPA0 = 0
@@ -88,11 +89,20 @@ BANK   = 1<<7 # Keep as zero or address map is different
 UINTA = 12
 
 class buttonio :
-    def __init__ (self) :
+    def __init__ (self,multiClick=True) :
         self.buttonQueue=[]
+        self.multiClick = multiClick
         self.intf = 0
-        self.debounce = 0
-        self.debounceTimer = gpTimer.gpTimer(0.5, userHandler = self.debounceCB)
+        self.val = 0
+        self.waitCB = False
+        if(self.multiClick) :
+            self.buttons = []
+            for b in range(16) :
+                self.buttons.append(button(b,self))
+            self.CBTimer = gpTimer.gpTimer(0.025, userHandler = self.timerCB)
+        else:
+            self.debounce = 0
+            self.debounceTimer = gpTimer.gpTimer(0.5, userHandler = self.debounceCB)
         self.event = threading.Event()
         self.event.clear()
         GPIO.setmode(GPIO.BOARD)
@@ -156,26 +166,47 @@ class buttonio :
         valb = self.i2cSafeRead(GPIOEX0,INTFB)
         #print("val B %d " %valb)
         self.intf = self.intf | vala  | (valb <<8)
+        print("intf = %x" % self.intf)
+        vala = self.i2cSafeRead(GPIOEX0,GPIOA)
+        #print("val A %d " %vala)
+        valb = self.i2cSafeRead(GPIOEX0,GPIOB)
+        #print("val B %d " %valb)
+        self.val =  vala  | (valb <<8)
+        print("val = %x" % self.val)
         self.intclr()
-        # next add the low pin(s) to the queue
-        for n in range(16) :
-            if((self.intf & 1<<n) and not (self.debounce & 1<<n)) :
-                self.buttonQueue = self.buttonQueue + [n]
-        self.debounce = self.debounce | self.intf
+        if(self.multiClick) :
+            self.waitCB = False
+            # call all the multi clickers
+            for n in range(16) :
+                self.buttons[n].update((self.val>>n) & 1)
+            if(self.waitCB) :
+                self.CBTimer.reset()
+        else:
+            # next add the low pin(s) to the queue
+            for n in range(16) :
+                if((self.intf & 1<<n) and not (self.debounce & 1<<n)) :
+                    self.buttonQueue = self.buttonQueue + ([n],'click')
+            self.debounce = self.debounce | self.intf
+            self.debounceTimer.reset()
         self.intf = 0
-        self.debounceTimer.reset()
-        self.event.set()
+        if(len(self.buttonQueue)) :
+            self.event.set()
 
     def intclr(self) :
         # reading incap and gpio clear the interupt condition.
         intcapA = self.i2cSafeRead(GPIOEX0,INTCAPA) 
         intcapB = self.i2cSafeRead(GPIOEX0,INTCAPB)
-        inctrlA = self.i2cSafeRead(GPIOEX0,GPIOA)
-        inctrlB = self.i2cSafeRead(GPIOEX0,GPIOB)
+        # read above
+        #inctrlA = self.i2cSafeRead(GPIOEX0,GPIOA)
+        #inctrlB = self.i2cSafeRead(GPIOEX0,GPIOB)
 
     def debounceCB(self):
         self.debounce = 0
         self.debounceTimer.stop()
+
+    def timerCB(self):
+        self.CBTimer.stop()
+        self.uinta(0)
 
     def ledon(self,led) :
         if(led <8) :
@@ -196,3 +227,81 @@ class buttonio :
         v = ~v & 0xff
         self.i2cSafeWrite(GPIOEX1,port,0xff)
 
+LOW = 0
+HIGH = 1
+debounce = 20
+DCgap = 250
+holdTime = 1000
+longHoldTime = 3000
+class button:
+    def __init__(self,id,parent):
+        self.id = id;
+        self.parent=parent
+        self.val = HIGH
+        self.last = HIGH
+        self.DCwaiting = False
+        self.DConUp = False
+        self.singleOK = True
+        self.downTime = 0
+        self.upTime = 0
+        self.ignoreUp = False
+        self.waitForUp = False
+        self.holdEventPast = False
+        self.longHoldEventPast = False
+        self.clicktype = None
+    def mils(self):
+        return(round(time.time() * 1000))
+    def update(self,val) :
+        #if(val == self.val) : # no change
+        #    return()
+        self.val=val
+        # Button pressed down
+        if (self.val == LOW and self.last == HIGH and (self.mils() - self.upTime) > debounce):
+            self.downTime = self.mils()
+            self.ignoreUp = False
+            self.waitForUp = False
+            self.singleOK = True
+            self.holdEventPast = False
+            self.longHoldEventPast = False
+            if ((self.mils()-self.upTime) < DCgap and self.DConUp == False and self.DCwaiting == True):
+                self.DConUp = True
+            else :
+                self.DConUp = False
+            self.DCwaiting = False
+        # Button released
+        elif (self.val == HIGH and self.last == LOW and (self.mils() - self.downTime) > debounce) :
+            if (not self.ignoreUp) :
+                self.upTime = self.mils()
+                if (self.DConUp == False):
+                    self.DCwaiting = True
+                else:
+                    self.clicktype = 'doubleClick'
+                    self.DConUp = False
+                    self.DCwaiting = False
+                    self.singleOK = False
+        # Test for normal click event: DCgap expired
+        if ( self.val == HIGH and (self.mils()-self.upTime) >= DCgap and self.DCwaiting == True
+             and self.DConUp == False and self.singleOK == True and self.clicktype != 'doubleClick'):
+            self.clicktype = 'click'
+            self.DCwaiting = False
+        # Test for hold
+        if (self.val == LOW and (self.mils() - self.downTime) >= holdTime) :
+           # Trigger "normal" hold
+           if (not self.holdEventPast) :
+               self.clicktype = 'hold'
+               self.waitForUp = True
+               self.ignoreUp = True
+               self.DConUp = False
+               self.DCwaiting = False
+               self.holdEventPast = True
+           # Trigger "long" hold
+        if ((self.mils() - self.downTime) >= longHoldTime):
+           if (not self.longHoldEventPast):
+               self.clicktype = 'longHold'
+               self.longHoldEventPast = True
+        self.last = self.val
+        if(self.DCwaiting or self.waitForUp) :
+            self.parent.waitCB = True
+        if(self.clicktype != None) :
+            self.parent.buttonQueue.append((self.id,self.clicktype))
+            self.clicktype = None
